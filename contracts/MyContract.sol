@@ -10,8 +10,8 @@ contract StakingContract is ReentrancyGuard, Ownable {
         uint256 amount;
         uint256 startTime;
         uint256 duration;
-        uint256 earned; // track earned rewards
-        uint256 claimedRewards; // track claimed rewards
+        uint256 earned;
+        uint256 claimedRewards;
         bool rewardsClaimed;
     }
 
@@ -24,10 +24,12 @@ contract StakingContract is ReentrancyGuard, Ownable {
 
     mapping(address => StakedInfo) public stakedInfo;
     mapping(uint256 => uint256) public apyRates;
+    mapping(uint256 => uint256) public maxStakePerApy;
+    mapping(uint256 => uint256) public totalStakeReached;
+
     uint256 public totalValueLocked;
     uint256 public stakersCount;
-
-    uint256 public earlyWithdrawalPenalty = 50; // 50% penalty for early unstake
+    uint256 public earlyWithdrawalPenalty = 50; // 50% penalty
     bool public paused;
 
     IERC20 public stakingToken;
@@ -45,6 +47,12 @@ contract StakingContract is ReentrancyGuard, Ownable {
         apyRates[90] = 20;
         apyRates[180] = 25;
         apyRates[360] = 30;
+
+        // Set max stake limits for each APY (in wei)
+        maxStakePerApy[30] = 10_00_000 * 10**18; // 10 lakh
+        maxStakePerApy[90] = 15_00_000 * 10**18; // 15 lakh
+        maxStakePerApy[180] = 20_00_000 * 10**18; // 20 lakh
+        maxStakePerApy[360] = 30_00_000 * 10**18; // 30 lakh
     }
 
     modifier whenNotPaused() {
@@ -55,10 +63,13 @@ contract StakingContract is ReentrancyGuard, Ownable {
     function stake(uint256 _amount, uint256 _duration) external nonReentrant whenNotPaused {
         require(_amount > 0, "Stake amount must be greater than 0");
         require(apyRates[_duration] > 0, "Invalid staking duration");
-        require(_amount <= stakingToken.balanceOf(msg.sender), "Not enough STATE tokens in your wallet, please try a lesser amount");
-        
-        // Ensure max stake amount is respected based on days
-        require(_amount <= 500000 * 10**18, "Stake cannot exceed 5 lakhs per APY rate");
+        require(_amount <= stakingToken.balanceOf(msg.sender), "Not enough tokens");
+
+        // Check if staking limit for the APY is not exceeded
+        require(
+            totalStakeReached[_duration] + _amount <= maxStakePerApy[_duration],
+            "Stake exceeds allowed limit for this APY"
+        );
 
         stakingToken.transferFrom(msg.sender, address(this), _amount);
 
@@ -79,6 +90,7 @@ contract StakingContract is ReentrancyGuard, Ownable {
         userStakedInfo.stakes.push(newStake);
         userStakedInfo.totalLocked += _amount;
         totalValueLocked += _amount;
+        totalStakeReached[_duration] += _amount;
 
         uint256 stakeId = userStakedInfo.stakes.length - 1;
         emit Staked(msg.sender, _amount, _duration, stakeId);
@@ -90,36 +102,30 @@ contract StakingContract is ReentrancyGuard, Ownable {
 
         Stake storage userStake = userStakedInfo.stakes[_stakeId];
         require(userStake.amount > 0, "No active stake");
-      require(!userStake.rewardsClaimed, "Already Claimed");
+        require(!userStake.rewardsClaimed, "Already Claimed");
 
         uint256 reward = _calculateRewards(msg.sender, _stakeId);
         uint256 totalWithdrawAmount;
 
-        // Check if withdrawal is before the staking period
         if (block.timestamp < userStake.startTime + userStake.duration) {
             uint256 penalty = (userStake.amount * earlyWithdrawalPenalty) / 100;
             totalWithdrawAmount = userStake.amount - penalty;
-            require(totalWithdrawAmount > 0, "Withdrawal amount must be greater than 0 even after penalty");
+            require(totalWithdrawAmount > 0, "Withdrawal amount too low after penalty");
         } else {
-            // No penalty; full amount can be withdrawn
             totalWithdrawAmount = userStake.amount;
         }
-      
-        // Clear the stake and calculate final amounts
+
         userStakedInfo.totalLocked -= userStake.amount; 
         totalValueLocked -= userStake.amount;
-        userStake.amount = 0; // Set stake amount to zero upon withdrawal
-        userStake.rewardsClaimed = true; // Mark rewards as claimed
-        userStake.claimedRewards = reward; // Mark rewards as claimed
+        totalStakeReached[userStake.duration / 1 days] -= userStake.amount; // Reduce total stake count
+        userStake.amount = 0; 
+        userStake.rewardsClaimed = true; 
+        userStake.claimedRewards = reward; 
 
-        // Total amount to transfer
         uint256 totalAmount = totalWithdrawAmount + reward;
-
         require(stakingToken.transfer(msg.sender, totalAmount), "Transfer failed");
 
-        // Update claimed rewards
         userStakedInfo.totalClaimedRewards += reward;
-
         emit Withdrawn(msg.sender, totalAmount, _stakeId);
     }
 
@@ -130,20 +136,26 @@ contract StakingContract is ReentrancyGuard, Ownable {
         Stake storage userStake = userStakedInfo.stakes[_stakeId];
         uint256 timeElapsed = block.timestamp - userStake.startTime;
 
-        // Calculate rewards proportionally based on time elapsed
         if (timeElapsed >= userStake.duration) {
-            // If staking period is over, return full rewards
             return (userStake.amount * apyRates[userStake.duration / 1 days] * userStake.duration / 365 days) / 100;
         } else {
-            // If staking period is ongoing, calculate rewards proportionally
             return (userStake.amount * apyRates[userStake.duration / 1 days] * timeElapsed / 365 days) / 100;
         }
+    }
+
+    function getMaxStakeInfo(uint256 _duration) external view returns (uint256 maxStake, uint256 totalStake) {
+        return (maxStakePerApy[_duration], totalStakeReached[_duration]);
     }
 
     function setAPY(uint256 _duration, uint256 _apy) external onlyOwner {
         require(_duration > 0, "Duration must be positive");
         require(_apy > 0, "APY must be greater than zero");
         apyRates[_duration] = _apy;
+    }
+
+    function setMaxStakeForApy(uint256 _duration, uint256 _maxStake) external onlyOwner {
+        require(_duration > 0, "Duration must be positive");
+        maxStakePerApy[_duration] = _maxStake;
     }
 
     function setEarlyWithdrawalPenalty(uint256 _penalty) external onlyOwner {
@@ -164,12 +176,11 @@ contract StakingContract is ReentrancyGuard, Ownable {
     }
 
     function transferAccidentallyLockedTokens(IERC20 token, uint256 amount) public onlyOwner nonReentrant {
-        require(address(token) != address(0), "Token address can not be zero");
-        require(token != stakingToken, "Token address can not be ERC20 address which was passed into the constructor");
+        require(address(token) != address(0), "Token address cannot be zero");
+        require(token != stakingToken, "Cannot withdraw staking token");
         token.transfer(owner(), amount);
     }
-
-    function getLockedAmount(address _user) external view returns (uint256) {
+       function getLockedAmount(address _user) external view returns (uint256) {
         return stakedInfo[_user].totalLocked;
     }
 
