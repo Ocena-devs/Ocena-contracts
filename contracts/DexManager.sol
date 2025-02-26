@@ -58,8 +58,7 @@ function buyTokens(uint256 _presaleId, uint256 _amount) external payable whenNot
     dexStorage.updatePresale(
         _presaleId,
         presale.tokenAmount,
-        presale.tokenPrice,
-        msg.value
+        presale.tokenPrice
     );
 
     // Transfer tokens to the buyer

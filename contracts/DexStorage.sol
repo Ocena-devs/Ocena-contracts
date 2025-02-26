@@ -69,7 +69,7 @@ contract DexStorage is AccessControl {
     }
 
     // Update a presale
-    function updatePresale(uint256 _presaleId, uint256 _tokenAmount, uint256 _tokenPrice, uint256 _totalRaised) external onlyAdmin {
+    function updatePresale(uint256 _presaleId, uint256 _tokenAmount, uint256 _tokenPrice) external onlyAdmin {
         require(presales[_presaleId].id != 0, "Presale does not exist.");
         require(_tokenAmount > 0, "Token amount must be greater than 0.");
         require(_tokenPrice > 0, "Token price must be greater than 0.");
@@ -77,7 +77,6 @@ contract DexStorage is AccessControl {
         // Update presale details
         presales[_presaleId].tokenAmount = _tokenAmount;
         presales[_presaleId].tokenPrice = _tokenPrice;
-        presales[_presaleId].totalRaised = _totalRaised;
 
         emit PresaleUpdated(_presaleId, _tokenAmount, _tokenPrice);
     }
