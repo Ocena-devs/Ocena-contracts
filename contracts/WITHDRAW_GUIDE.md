@@ -13,7 +13,7 @@ This guide explains how to withdraw raised POL (MATIC) from the `DexManager` con
 ## **Step-by-Step Guide**  
 
 ### **1. Access the Contract on PolygonScan**  
-1. Go to your contract on [Polygonscan]([https://polygonscan.com/](https://polygonscan.com/address/0x90b2FbaC2424DF4BfeD42eB681273b4615880432)).  
+1. Go to your contract on [Polygonscan](https://polygonscan.com/address/0x90b2FbaC2424DF4BfeD42eB681273b4615880432).
 2. Navigate to the **"Contract"** tab → **"Write Contract"**.  
 3. Connect your wallet (must be the owner’s wallet).  
 
